@@ -1,0 +1,5 @@
+{
+  "name": "SMART PICK AI",
+  "description": "AI-powered product comparison tool that scrapes web reviews and technical specs to find the ultimate winner.",
+  "requestFramePermissions": []
+}
