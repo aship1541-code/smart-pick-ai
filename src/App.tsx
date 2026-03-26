@@ -21,7 +21,7 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-3-flash-preview";
+const MODEL_NAME = "gemini-3-flash";
 
 interface SpecRow {
   feature: string;
