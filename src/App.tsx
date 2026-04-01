@@ -21,7 +21,7 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-1.5-flash-latest";
+const MODEL_NAME = "gemini-3-flash-preview";
 
 // Helper for exponential backoff
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -29,7 +29,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const retryWithBackoff = async <T,>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  initialDelay: number = 1000
+  initialDelay: number = 1500
 ): Promise<T> => {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
@@ -37,7 +37,13 @@ const retryWithBackoff = async <T,>(
       return await fn();
     } catch (err: any) {
       lastError = err;
-      const isQuotaError = err.message?.includes("quota") || err.message?.includes("429");
+      const errorMessage = (err.message || "").toLowerCase();
+      const isQuotaError = 
+        errorMessage.includes("quota") || 
+        errorMessage.includes("429") || 
+        errorMessage.includes("rate limit") ||
+        err.status === 429;
+
       if (isQuotaError && i < maxRetries - 1) {
         const delay = initialDelay * Math.pow(2, i);
         console.warn(`Quota hit, retrying in ${delay}ms (attempt ${i + 1}/${maxRetries})`);
@@ -194,7 +200,14 @@ function ComparisonApp() {
             response = await generateComparison(true);
           } catch (searchErr: any) {
             console.warn("Search grounding failed, attempting without search:", searchErr);
-            if (searchErr.message?.includes("quota") || searchErr.message?.includes("429")) {
+            const searchErrMsg = (searchErr.message || "").toLowerCase();
+            const isQuotaError = 
+              searchErrMsg.includes("quota") || 
+              searchErrMsg.includes("429") || 
+              searchErrMsg.includes("rate limit") ||
+              searchErr.status === 429;
+
+            if (isQuotaError) {
               response = await generateComparison(false);
             } else {
               throw searchErr;
@@ -228,7 +241,11 @@ function ComparisonApp() {
         setError("API Key error. Please check your configuration.");
       } else if (errorMessage.includes("generation exceeded max tokens limit")) {
         setError("The comparison was too complex. Try a more specific purpose.");
-      } else if (errorMessage.includes("quota") || errorMessage.includes("429")) {
+      } else if (
+        errorMessage.toLowerCase().includes("quota") || 
+        errorMessage.toLowerCase().includes("429") || 
+        errorMessage.toLowerCase().includes("rate limit")
+      ) {
         setError("API quota exceeded (Rate Limit). Please wait a few seconds and try again.");
       } else {
         setError("Failed to generate comparison. Please try again.");
