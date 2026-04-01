@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect, Component, ErrorInfo, ReactNode } from 'react';
-import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Trophy, 
@@ -21,7 +21,7 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-3-flash-preview";
+const MODEL_NAME = "gemini-3.1-flash-lite-preview";
 
 interface SpecRow {
   feature: string;
@@ -107,7 +107,6 @@ function ComparisonApp() {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       
       const systemInstruction = `You are a professional product comparison expert. Your goal is to provide a clear, data-driven comparison between two products based on a specific user purpose.
-      - Use Google Search to find the latest technical specifications and real-world reviews.
       - Be objective and concise.
       - Ensure the final output is a valid JSON object.
       - Keep the justification points short and punchy.
@@ -119,43 +118,58 @@ function ComparisonApp() {
       3. Provide a brief summary.
       4. Provide a detailed technical specification comparison table.`;
 
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt,
-        config: {
-          systemInstruction,
-          tools: [{ googleSearch: {} }],
-          thinkingConfig: {
-            thinkingLevel: ThinkingLevel.LOW
-          },
-          maxOutputTokens: 2048, // Explicitly set a reasonable limit for the response
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              winner: { type: Type.STRING },
-              justification: { 
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              summary: { type: Type.STRING },
-              specs: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    feature: { type: Type.STRING },
-                    productAValue: { type: Type.STRING },
-                    productBValue: { type: Type.STRING }
-                  },
-                  required: ["feature", "productAValue", "productBValue"]
+      const generateComparison = async (useSearch: boolean) => {
+        return await ai.models.generateContent({
+          model: MODEL_NAME,
+          contents: prompt,
+          config: {
+            systemInstruction: useSearch 
+              ? `${systemInstruction}\n- Use Google Search to find the latest technical specifications and real-world reviews.`
+              : systemInstruction,
+            tools: useSearch ? [{ googleSearch: {} }] : [],
+            maxOutputTokens: 1500,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                winner: { type: Type.STRING },
+                justification: { 
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                },
+                summary: { type: Type.STRING },
+                specs: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      feature: { type: Type.STRING },
+                      productAValue: { type: Type.STRING },
+                      productBValue: { type: Type.STRING }
+                    },
+                    required: ["feature", "productAValue", "productBValue"]
+                  }
                 }
-              }
-            },
-            required: ["winner", "justification", "summary", "specs"]
-          }
-        },
-      });
+              },
+              required: ["winner", "justification", "summary", "specs"]
+            }
+          },
+        });
+      };
+
+      let response;
+      try {
+        // Try with search first
+        response = await generateComparison(true);
+      } catch (searchErr: any) {
+        console.warn("Search grounding failed, attempting without search:", searchErr);
+        if (searchErr.message?.includes("quota") || searchErr.message?.includes("429")) {
+          // Fallback to no search if quota exceeded
+          response = await generateComparison(false);
+        } else {
+          throw searchErr;
+        }
+      }
 
       const text = response.text;
       if (!text) throw new Error("No response from AI");
