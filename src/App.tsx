@@ -21,7 +21,7 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-3-flash-preview";
+const MODEL_NAME = "gemini-3.1-flash-lite-preview";
 
 // Helper for exponential backoff
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -29,7 +29,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const retryWithBackoff = async <T,>(
   fn: () => Promise<T>,
   maxRetries: number = 3,
-  initialDelay: number = 1500
+  initialDelay: number = 2000
 ): Promise<T> => {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
@@ -117,6 +117,7 @@ function ComparisonApp() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
 
   // Sync theme with body class
   useEffect(() => {
@@ -139,6 +140,7 @@ function ComparisonApp() {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      setErrorDetails(null);
       
       const systemInstruction = `You are a professional product comparison expert. Your goal is to provide a clear, data-driven comparison between two products based on a specific user purpose.
       - Be objective and concise.
@@ -161,7 +163,7 @@ function ComparisonApp() {
               ? `${systemInstruction}\n- Use Google Search to find the latest technical specifications and real-world reviews.`
               : systemInstruction,
             tools: useSearch ? [{ googleSearch: {} }] : [],
-            maxOutputTokens: 1000,
+            maxOutputTokens: 800,
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
@@ -236,6 +238,7 @@ function ComparisonApp() {
     } catch (err: any) {
       console.error("Comparison error:", err);
       const errorMessage = err.message || "";
+      setErrorDetails(errorMessage);
       
       if (errorMessage.includes("Requested entity was not found")) {
         setError("API Key error. Please check your configuration.");
@@ -414,9 +417,19 @@ function ComparisonApp() {
               animate={{ opacity: 1, scale: 1 }}
               className="bg-red-500 text-white p-4 mb-8 flex flex-col sm:flex-row items-center justify-between gap-4 font-bold uppercase tracking-tight italic"
             >
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-6 h-6" />
-                <p className="text-base">{error}</p>
+              <div className="flex flex-col items-start gap-1">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-6 h-6" />
+                  <p className="text-base">{error}</p>
+                </div>
+                {errorDetails && (
+                  <button 
+                    onClick={() => alert(`Technical Details:\n${errorDetails}`)}
+                    className="text-[10px] underline opacity-70 hover:opacity-100 ml-9 cursor-pointer"
+                  >
+                    Show Technical Details
+                  </button>
+                )}
               </div>
               <button 
                 onClick={handleRetry}
