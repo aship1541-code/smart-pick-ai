@@ -21,15 +21,15 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-flash-latest";
+const MODEL_NAME = "gemini-3.1-flash-lite-preview";
 
 // Helper for exponential backoff
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const retryWithBackoff = async <T,>(
   fn: () => Promise<T>,
-  maxRetries: number = 3,
-  initialDelay: number = 2000
+  maxRetries: number = 5,
+  initialDelay: number = 3000
 ): Promise<T> => {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
@@ -247,9 +247,10 @@ function ComparisonApp() {
       } else if (
         errorMessage.toLowerCase().includes("quota") || 
         errorMessage.toLowerCase().includes("429") || 
-        errorMessage.toLowerCase().includes("rate limit")
+        errorMessage.toLowerCase().includes("rate limit") ||
+        errorMessage.toLowerCase().includes("resource_exhausted")
       ) {
-        setError("API quota exceeded (Rate Limit). Please wait a few seconds and try again.");
+        setError("API Quota Exceeded. Please wait 60 seconds and try again.");
       } else {
         setError("Failed to generate comparison. Please try again.");
       }
