@@ -21,7 +21,34 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-3.1-flash-lite-preview";
+const MODEL_NAME = "gemini-1.5-flash-latest";
+
+// Helper for exponential backoff
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const retryWithBackoff = async <T,>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  initialDelay: number = 1000
+): Promise<T> => {
+  let lastError: any;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      const isQuotaError = err.message?.includes("quota") || err.message?.includes("429");
+      if (isQuotaError && i < maxRetries - 1) {
+        const delay = initialDelay * Math.pow(2, i);
+        console.warn(`Quota hit, retrying in ${delay}ms (attempt ${i + 1}/${maxRetries})`);
+        await wait(delay);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+};
 
 interface SpecRow {
   feature: string;
@@ -120,7 +147,7 @@ function ComparisonApp() {
       4. Provide a detailed technical specification comparison table.`;
 
       const generateComparison = async (useSearch: boolean) => {
-        return await ai.models.generateContent({
+        return await retryWithBackoff(() => ai.models.generateContent({
           model: MODEL_NAME,
           contents: prompt,
           config: {
@@ -128,7 +155,7 @@ function ComparisonApp() {
               ? `${systemInstruction}\n- Use Google Search to find the latest technical specifications and real-world reviews.`
               : systemInstruction,
             tools: useSearch ? [{ googleSearch: {} }] : [],
-            maxOutputTokens: 1500,
+            maxOutputTokens: 1000,
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
@@ -155,32 +182,32 @@ function ComparisonApp() {
               required: ["winner", "justification", "summary", "specs"]
             }
           },
-        });
+        }));
       };
 
       let response;
       try {
-        // Try with search first (unless simple mode is on)
         if (isSimpleMode) {
           response = await generateComparison(false);
         } else {
-          response = await generateComparison(true);
+          try {
+            response = await generateComparison(true);
+          } catch (searchErr: any) {
+            console.warn("Search grounding failed, attempting without search:", searchErr);
+            if (searchErr.message?.includes("quota") || searchErr.message?.includes("429")) {
+              response = await generateComparison(false);
+            } else {
+              throw searchErr;
+            }
+          }
         }
-      } catch (searchErr: any) {
-        console.warn("Search grounding failed, attempting without search:", searchErr);
-        if (searchErr.message?.includes("quota") || searchErr.message?.includes("429")) {
-          // Fallback to no search if quota exceeded, with a small delay
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          response = await generateComparison(false);
-        } else {
-          throw searchErr;
-        }
+      } catch (err: any) {
+        throw err;
       }
 
       const text = response.text;
       if (!text) throw new Error("No response from AI");
 
-      // Clean up potential markdown code blocks if the model ignored responseMimeType
       const cleanJson = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
       const data = JSON.parse(cleanJson);
       
@@ -200,7 +227,7 @@ function ComparisonApp() {
       if (errorMessage.includes("Requested entity was not found")) {
         setError("API Key error. Please check your configuration.");
       } else if (errorMessage.includes("generation exceeded max tokens limit")) {
-        setError("The comparison was too complex for the current token limit. Try a more specific purpose or simpler product names.");
+        setError("The comparison was too complex. Try a more specific purpose.");
       } else if (errorMessage.includes("quota") || errorMessage.includes("429")) {
         setError("API quota exceeded (Rate Limit). Please wait a few seconds and try again.");
       } else {
@@ -209,7 +236,7 @@ function ComparisonApp() {
     } finally {
       setIsLoading(false);
     }
-  }, [productA, productB, purpose]);
+  }, [productA, productB, purpose, isSimpleMode]);
 
   const handleRetry = () => {
     if (error?.includes("quota") || error?.includes("Rate Limit")) {
@@ -340,21 +367,27 @@ function ComparisonApp() {
         </div>
 
         {/* Action Button */}
-        <div className="flex flex-col items-center gap-4 mb-16">
-          <button
-            onClick={handleCompare}
-            disabled={isLoading}
-            className={cn(
-              "w-full sm:w-auto px-8 py-4 font-bold text-lg uppercase tracking-tight transition-all relative overflow-hidden group",
-              isDarkMode ? "bg-green-500 text-black hover:bg-white" : "bg-black text-white hover:bg-green-500 hover:text-black"
-            )}
-          >
-            <span className="relative z-10 flex items-center gap-3">
-              {isLoading ? "Analyzing Data..." : "Generate Verdict"}
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-            </span>
-          </button>
-        </div>
+          <div className="flex flex-col items-center gap-4 mb-16">
+            <button
+              onClick={handleCompare}
+              disabled={isLoading}
+              className={cn(
+                "w-full sm:w-auto px-8 py-4 font-bold text-lg uppercase tracking-tight transition-all relative overflow-hidden group",
+                isDarkMode ? "bg-green-500 text-black hover:bg-white" : "bg-black text-white hover:bg-green-500 hover:text-black"
+              )}
+            >
+              <span className="relative z-10 flex items-center gap-3">
+                {isLoading ? "Analyzing Data..." : "Generate Verdict"}
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+              </span>
+            </button>
+            <p className={cn(
+              "text-[10px] font-mono uppercase tracking-widest opacity-50",
+              isDarkMode ? "text-zinc-400" : "text-zinc-500"
+            )}>
+              Free Tier: 15 requests per minute limit
+            </p>
+          </div>
 
         {/* Error Message */}
         <AnimatePresence>
