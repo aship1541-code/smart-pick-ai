@@ -79,6 +79,7 @@ function ComparisonApp() {
   const [productA, setProductA] = useState("");
   const [productB, setProductB] = useState("");
   const [purpose, setPurpose] = useState("");
+  const [isSimpleMode, setIsSimpleMode] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
@@ -159,12 +160,17 @@ function ComparisonApp() {
 
       let response;
       try {
-        // Try with search first
-        response = await generateComparison(true);
+        // Try with search first (unless simple mode is on)
+        if (isSimpleMode) {
+          response = await generateComparison(false);
+        } else {
+          response = await generateComparison(true);
+        }
       } catch (searchErr: any) {
         console.warn("Search grounding failed, attempting without search:", searchErr);
         if (searchErr.message?.includes("quota") || searchErr.message?.includes("429")) {
-          // Fallback to no search if quota exceeded
+          // Fallback to no search if quota exceeded, with a small delay
+          await new Promise(resolve => setTimeout(resolve, 1000));
           response = await generateComparison(false);
         } else {
           throw searchErr;
@@ -195,8 +201,8 @@ function ComparisonApp() {
         setError("API Key error. Please check your configuration.");
       } else if (errorMessage.includes("generation exceeded max tokens limit")) {
         setError("The comparison was too complex for the current token limit. Try a more specific purpose or simpler product names.");
-      } else if (errorMessage.includes("quota")) {
-        setError("API quota exceeded. Please try again later.");
+      } else if (errorMessage.includes("quota") || errorMessage.includes("429")) {
+        setError("API quota exceeded (Rate Limit). Please wait a few seconds and try again.");
       } else {
         setError("Failed to generate comparison. Please try again.");
       }
@@ -204,6 +210,14 @@ function ComparisonApp() {
       setIsLoading(false);
     }
   }, [productA, productB, purpose]);
+
+  const handleRetry = () => {
+    if (error?.includes("quota") || error?.includes("Rate Limit")) {
+      setIsSimpleMode(true);
+    }
+    setError(null);
+    handleCompare();
+  };
 
   return (
     <div className={cn(
@@ -226,7 +240,22 @@ function ComparisonApp() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-mono uppercase tracking-widest text-green-500 font-bold">Simple Mode</label>
+              <button 
+                onClick={() => setIsSimpleMode(!isSimpleMode)}
+                className={cn(
+                  "w-10 h-5 rounded-full border transition-all relative",
+                  isSimpleMode ? "bg-green-500 border-green-500" : "bg-transparent border-zinc-500"
+                )}
+              >
+                <div className={cn(
+                  "absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all",
+                  isSimpleMode ? "left-[22px] bg-black" : "left-0.5 bg-zinc-500"
+                )} />
+              </button>
+            </div>
             <button 
               onClick={() => setIsDarkMode(!isDarkMode)}
               className={cn(
@@ -333,10 +362,18 @@ function ComparisonApp() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-red-500 text-white p-4 mb-8 flex items-center gap-3 font-bold uppercase tracking-tight italic"
+              className="bg-red-500 text-white p-4 mb-8 flex flex-col sm:flex-row items-center justify-between gap-4 font-bold uppercase tracking-tight italic"
             >
-              <AlertCircle className="w-6 h-6" />
-              <p className="text-base">{error}</p>
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-6 h-6" />
+                <p className="text-base">{error}</p>
+              </div>
+              <button 
+                onClick={handleRetry}
+                className="px-4 py-2 bg-white text-red-500 hover:bg-black hover:text-white transition-colors text-sm shrink-0"
+              >
+                Try Again
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
