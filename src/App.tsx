@@ -21,7 +21,7 @@ import {
 import { cn } from './lib/utils';
 
 // Constants
-const MODEL_NAME = "gemini-flash-latest";
+const MODEL_NAME = "gemini-1.5-flash";
 
 // Helper for exponential backoff
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
